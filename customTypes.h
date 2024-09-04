@@ -3,13 +3,14 @@
 #include <ntddk.h>
 
 // process-specific access masks
-// @resource https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+// @reference https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 #define PROCESS_TERMINATE (0x0001)
 #define PROCESS_CREATE_THREAD (0x0002)
 #define PROCESS_SUSPEND_RESUME (0x0800)
 #define PROCESS_VM_OPERATION (0x0008)
 #define PROCESS_VM_WRITE (0x0020)
 
+// structures for the callbacks we need to initialize
 typedef struct _ImageLoadCallback {
     PLOAD_IMAGE_NOTIFY_ROUTINE ImageLoadCallbackPtr;
     BOOLEAN IsRegistered;
@@ -20,6 +21,7 @@ typedef struct _ProcessLoadCallback {
     BOOLEAN IsRegistered;
 } ProcessLoadCallback, *PProcessLoadCallback;
 
+// @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_ob_callback_registration
 typedef struct _OpenProcessCallback {
     POB_PRE_OPERATION_CALLBACK OpenProcessNotifyPtr;
     PVOID RegistrationHandle;
@@ -35,15 +37,14 @@ typedef struct _CallbackState {
 typedef struct _ProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
-    LIST_ENTRY CurEntry;
+    LIST_ENTRY CurrentEntry;
 } ProtectedProcessEntry, *PProtectedProcessEntry;
 
 typedef struct _ActiveProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
-    LIST_ENTRY CurEntry;
+    LIST_ENTRY CurrentEntry;
 } ActiveProtectedProcessEntry, *PActiveProtectedProcessEntry;
-
 
 typedef struct _BlisterState {
     // guarded mutex to "lock" the structure down to avoid
