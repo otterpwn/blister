@@ -267,7 +267,7 @@ OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, I
     }
 
     PEPROCESS openedProcess = (PEPROCESS)OperationInformation->Object;
-    targetPID = PsGetCurrentProcessId(openedProcess);
+    targetPID = PsGetProcessId(openedProcess);
     sourcePID = PsGetCurrentProcessId();
 
     // if the target process is trying to open a handle
@@ -319,4 +319,102 @@ VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDL
     UNREFERENCED_PARAMETER(ImageInfo);
 
     return;
+}
+
+VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
+    UNREFERENCED_PARAMETER(Process);
+
+    PActiveProtectedProcessEntry ppEntry = NULL;
+    NTSTATUS returnStatus = STATUS_ABANDONED;
+
+    // if CreateInfo is NULL it means the process is exiting
+    // so we return before cleanup since no memory was allocated
+    // and we haven't acquired any locks
+    if (CreateInfo == NULL) {
+        // todo: create function to handle process exit
+        return;
+    }
+
+    // if we get to this point it means that the process
+    // callback is starting and we need to figure out
+    // whether we need to protect the process or not
+
+    // enumerate the SelfProtecterProcesses list
+    // so we have to get a lock on it
+    // and only then we can iterate over the list
+    KeAcquireGuardedMutex(&driverState.InUse);
+    
+    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
+    PLIST_ENTRY nextEntry = startEntry->Flink;
+
+    // this is from GPT, apparently we need to skip the first entry
+    // because it's not actually part of the entries
+    while (nextEntry != startEntry) {
+        PProtectedProcessEntry listEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurrentEntry);
+        
+        // this horrible piece of code is to split CreateInfo->ImageFileName at the last slash
+        // by iterating over the string backwards until we find a '/' or a '\'
+        UNICODE_STRING imageName;
+        imageName.Buffer = CreateInfo->ImageFileName->Buffer;
+        imageName.Length = CreateInfo->ImageFileName->Length;
+        imageName.MaximumLength = CreateInfo->ImageFileName->MaximumLength;
+
+        for (int o = imageName.Length / sizeof(WCHAR); o > 0; o--) {
+            if (imageName.Buffer[o] == L"\\" || imageName.Buffer[o] == L"/") {
+                imageName.Buffer = &imageName.Buffer[o + 1];
+                imageName.Length = (USHORT)(imageName.Length - (o + 1) * sizeof(WCHAR));
+                imageName.MaximumLength = (USHORT)(imageName.MaximumLength - (o + 1) * sizeof(WCHAR));
+                break;
+            }
+        }
+
+        // now compare the isolated image names
+        INFO("Comparing imageName entry %wZ to protected imageName entry %wZ\n", imageName, listEntry->Name);
+
+        // if we find a match
+        if (RtlCompareUnicodeString(&imageName, listEntry->Name, TRUE) == 0) {
+            // now we allocate all the buffers for the PP entry and all its fields
+            // allocate a buffer for the PP entry with the tag blPp (blisterProtectedprocess)
+            // allocate space for the name of the PP entry with the tag blPn (blisterProtectedname)
+            // allocate space for the name buffer with the name length with a tag of blPb (blisterProtectedbuffer)
+            ppEntry = (PActiveProtectedProcessEntry)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ActiveProtectedProcessEntry), 'blPp');
+            if (ppEntry == NULL) {
+                // exit if we can't allocate the space for the PP entry
+            }
+            
+            ppEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
+            if (ppEntry->Name == NULL) {
+                // exit if we can't allocate the space for the name of the entry
+            }
+
+            ppEntry->Name->Buffer = ExAllocatePool2(POOL_FLAG_PAGED, CreateInfo->ImageFileName->Length, 'blPb');
+            ppEntry->Name->MaximumLength = CreateInfo->ImageFileName->Length;
+            if (ppEntry->Name->Buffer == NULL) {
+                // exit if we can't allocate space for the name buffer
+            }
+
+            // now that we allocated all the buffers we can
+            // copy the image name string into the ppEntry object
+            returnStatus = RtlUnicodeStringCopy(ppEntry->Name, CreateInfo->ImageFileName);
+            ppEntry->ProcessId = ProcessId;
+
+            if (ppEntry->Name == CreateInfo->ImageFileName) {
+                // exit if the copy didn't work
+            }
+
+            // insert the protected process entry
+            // into our list of active protected processes
+            // and its PID in the cache of handles (if there is any space left)
+            InsertTailList(&driverState.ActiveSelfProtectedProcesses, &ppEntry->CurrentEntry);
+
+            int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
+            for (int o = 0; o < sizeOfCache; o++) {
+                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], (LONG64)ProcessId, 0);
+
+                if (hProcess == 0) {
+                    break;
+                }
+            }
+        }
+    }
 }
