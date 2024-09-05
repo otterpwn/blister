@@ -380,17 +380,20 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
             ppEntry = (PActiveProtectedProcessEntry)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ActiveProtectedProcessEntry), 'blPp');
             if (ppEntry == NULL) {
                 // exit if we can't allocate the space for the PP entry
+                goto MemoryCleanup;
             }
             
             ppEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
             if (ppEntry->Name == NULL) {
                 // exit if we can't allocate the space for the name of the entry
+                goto MemoryCleanup;
             }
 
             ppEntry->Name->Buffer = ExAllocatePool2(POOL_FLAG_PAGED, CreateInfo->ImageFileName->Length, 'blPb');
             ppEntry->Name->MaximumLength = CreateInfo->ImageFileName->Length;
             if (ppEntry->Name->Buffer == NULL) {
                 // exit if we can't allocate space for the name buffer
+                goto MemoryCleanup;
             }
 
             // now that we allocated all the buffers we can
@@ -400,6 +403,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
 
             if (ppEntry->Name == CreateInfo->ImageFileName) {
                 // exit if the copy didn't work
+                goto MemoryCleanup;
             }
 
             // insert the protected process entry
@@ -415,6 +419,28 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
                     break;
                 }
             }
+            goto EndOfFunction;
         }
+
+        // advance to the next entry in the list
+        nextEntry = nextEntry->Flink;
     }
+
+MemoryCleanup:
+    // free all the buffers we allocated for the PP entry,
+    // its name and the buffer for the name
+    if (ppEntry != NULL) {
+        if (ppEntry->Name != NULL) {
+            if (ppEntry->Name->Buffer != NULL) {
+                ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPb');
+            }
+            ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPn');
+        }
+        ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPp');
+    }
+
+EndOfFunction:
+    // release the lock
+    KeReleaseGuardedMutex(&driverState.InUse);
+    return;
 }
