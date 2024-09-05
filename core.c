@@ -1,8 +1,11 @@
 #include <ntddk.h>
 #include <aux_klib.h>
+#include <Ntstrsafe.h>
 
 #include "customTypes.h"
 #include "macros.h"
+
+extern BlisterState driverState;
 
 // @reference https://www.vergiliusproject.com/kernels/x64/windows-10/21h2/_OBJECT_TYPE_INITIALIZER
 // THIS STRUCTURE CAN CHANGE BASED ON THE KERNEL VERSION
@@ -90,6 +93,7 @@ typedef struct _OBJECT_TYPE {
 // function to log callbacks and the driver that owns them
 VOID ReportCallbacks(IN PVOID StartContext) {
     UNREFERENCED_PARAMETER(StartContext);
+
     NTSTATUS returnStatus = STATUS_ABANDONED;
     SIZE_T totalCallbacks = 0;
     SIZE_T maxCallbacks = 10;
@@ -248,4 +252,62 @@ MemoryCleanup:
     }
 
     return;
+}
+
+OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, IN POB_PRE_OPERATION_INFORMATION OperationInformation) {
+    UNREFERENCED_PARAMETER(RegistrationContext);
+
+    HANDLE targetPID = NULL, sourcePID = NULL;
+    BOOLEAN isPP = FALSE;
+
+    // get a handle to the first PID
+    if (OperationInformation->ObjectType != *PsProcessType) {
+        // handle a different callee object
+        goto Cleanup;
+    }
+
+    PEPROCESS openedProcess = (PEPROCESS)OperationInformation->Object;
+    targetPID = PsGetCurrentProcessId(openedProcess);
+    sourcePID = PsGetCurrentProcessId();
+
+    // if the target process is trying to open a handle
+    // to itself we can skip the rest of the implementation
+    if (openedProcess == PsGetCurrentProcess || targetPID == sourcePID) {
+        // skip to the end of the function
+        goto Cleanup;
+    }
+
+    // search for the PID in the cached PIDs from the driverState object (BlisterState->CacheSelfProtectedPIDs)
+    // if we find a match, we can break the loop
+    // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exinterlockedcompareexchange64
+    int totalCacheElements = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
+    for (int o = 0; o < totalCacheElements; o++) {
+        HANDLE interlockedCompareResult = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, 0);
+
+        if (interlockedCompareResult == targetPID && OperationInformation->KernelHandle != TRUE) {
+            isPP = TRUE;
+            break;
+        }
+    }
+
+    if (isPP) {
+        INFO("A process is trying to get a handle to the PP %d from a PID of ^%d, blocking the operation\n");
+
+        // if the protected process is getting accessed by another process
+        // (create handle or duplicate handle) strip the handle
+        // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_ob_pre_create_handle_information
+        ACCESS_MASK denyAccessToHandle = PROCESS_TERMINATE;
+
+        switch (OperationInformation->Operation) {
+        case OB_OPERATION_HANDLE_CREATE:
+            OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
+            break;
+        case OB_OPERATION_HANDLE_DUPLICATE:
+            OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
+            break;
+        }
+    }
+
+Cleanup:
+    return OB_PREOP_SUCCESS;
 }
