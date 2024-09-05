@@ -321,6 +321,67 @@ VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDL
     return;
 }
 
+VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
+    UNREFERENCED_PARAMETER(Process);
+    UNREFERENCED_PARAMETER(CreateInfo);
+
+    // since this function handles the callbacks from
+    // PsSetCreateProcessNotifyRoutineEx when a process is exiting
+    // we'll iterate over the list of active PPs and remove
+    // the entry for the exiting process
+    // the functionality will be really similar to the MemoryCleanup label 
+    // and main while loop for the PCreateProcessNotifyRoutineEx
+    // function but instead of copying the unicode string into new buffers
+    // we'll be freeing the buffers instead
+
+    // acquire the lock on the list and start
+    // looping through the list
+    KeAcquireGuardedMutex(&driverState.InUse);
+    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
+    PLIST_ENTRY nextEntry = startEntry->Flink;
+
+    while (nextEntry != startEntry) {
+        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurrentEntry);
+
+        // if the PID match remove everything related to the entry
+        if (ppEntry->ProcessId == ProcessId) {
+            if (ppEntry != NULL) {
+                if (ppEntry->Name != NULL) {
+                    if (ppEntry->Name->Buffer != NULL) {
+                        ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPb');
+                    }
+                    ExFreePoolWithTag(ppEntry->Name, 'blPn');
+                }
+                ExFreePoolWithTag(ppEntry, 'blPp');
+            }
+
+            // remove the entry from the list
+            RemoveEntryList(&ppEntry->CurrentEntry);
+
+            // find the entry in the cached PIDs handles and set it to 0
+            // and clean up the un-used entry as well
+            int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
+            for (int o = 0; o < sizeOfCache; o++) {
+                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, (LONG64)ProcessId);
+
+                if (hProcess == ProcessId) {
+                    break;
+                }
+            }
+            ExFreePoolWithTag(ppEntry, 'blPp');
+            goto Cleanup;
+        }
+
+        // go forward in the list
+        nextEntry = nextEntry->Flink;
+    }
+
+Cleanup:
+    // release the lock
+    KeReleaseGuardedMutex(&driverState.InUse);
+    return;
+}
+
 VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
 
@@ -331,7 +392,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // so we return before cleanup since no memory was allocated
     // and we haven't acquired any locks
     if (CreateInfo == NULL) {
-        PcreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
+        PCreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
         return;
     }
 
@@ -440,67 +501,6 @@ MemoryCleanup:
     }
 
 EndOfFunction:
-    // release the lock
-    KeReleaseGuardedMutex(&driverState.InUse);
-    return;
-}
-
-VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
-    UNREFERENCED_PARAMETER(Process);
-    UNREFERENCED_PARAMETER(CreateInfo);
-
-    // since this function handles the callbacks from
-    // PsSetCreateProcessNotifyRoutineEx when a process is exiting
-    // we'll iterate over the list of active PPs and remove
-    // the entry for the exiting process
-    // the functionality will be really similar to the MemoryCleanup label 
-    // and main while loop for the PCreateProcessNotifyRoutineEx
-    // function but instead of copying the unicode string into new buffers
-    // we'll be freeing the buffers instead
-
-    // acquire the lock on the list and start
-    // looping through the list
-    KeAcquireGuardedMutex(&driverState.InUse);
-    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
-    PLIST_ENTRY nextEntry = startEntry->Flink;
-
-    while (nextEntry != startEntry) {
-        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurrentEntry);
-
-        // if the PID match remove everything related to the entry
-        if (ppEntry->ProcessId == ProcessId) {
-            if (ppEntry != NULL) {
-                if (ppEntry->Name != NULL) {
-                    if (ppEntry->Name->Buffer != NULL) {
-                        ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPb');
-                    }
-                    ExFreePoolWithTag(ppEntry->Name, 'blPn');
-                }
-                ExFreePoolWithTag(ppEntry, 'blPp');
-            }
-
-            // remove the entry from the list
-            RemoveEntryList(&ppEntry->CurrentEntry);
-
-            // find the entry in the cached PIDs handles and set it to 0
-            // and clean up the un-used entry as well
-            int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
-            for (int o = 0; o < sizeOfCache; o++) {
-                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, (LONG64)ProcessId);
-
-                if (hProcess == ProcessId) {
-                    break;
-                }
-            }
-            ExFreePoolWithTag(ppEntry, 'blPp');
-            goto Cleanup;
-        }
-
-        // go forward in the list
-        nextEntry = nextEntry->Flink;
-    }
-
-Cleanup:
     // release the lock
     KeReleaseGuardedMutex(&driverState.InUse);
     return;
