@@ -2,6 +2,16 @@
 
 #include <ntddk.h>
 
+#define uint8_t         unsigned char
+#define uint16_t        unsigned short
+#define uint32_t        unsigned int
+#define uint64_t        unsigned long long
+#define int8_t          char
+#define int16_t         short
+#define int32_t         int
+#define int64_t         long long
+
+
 // process-specific access masks
 // @reference https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 #define PROCESS_TERMINATE (0x0001)
