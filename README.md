@@ -1,5 +1,5 @@
 ## Blister
-*Blister* is a simple-ish rootkit / kernel driver for Windows that sets user-land processes of the user's choice into [Protected Processes](https://support.kaspersky.com/common/windows/13905).
+*Blister* is a simple-ish rootkit / kernel driver for Windows that turns user-land processes of the user's choice into [Protected Processes](https://support.kaspersky.com/common/windows/13905).
 This can potentially make it more difficult for **some** security software and tools to terminate or modify these processes.
 
 While PPLs can offer some resistance to standard termination attempts, they are not foolproof. Advanced security solutions might still be able to detect and potentially disable them.
