@@ -311,3 +311,12 @@ OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, I
 Cleanup:
     return OB_PREOP_SUCCESS;
 }
+
+// todo: understand how this works
+VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDLE ProcessId, IN PIMAGE_INFO ImageInfo) {
+    UNREFERENCED_PARAMETER(FullImageName);
+    UNREFERENCED_PARAMETER(ProcessId);
+    UNREFERENCED_PARAMETER(ImageInfo);
+
+    return;
+}
