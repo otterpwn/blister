@@ -56,6 +56,7 @@ typedef struct _OBJECT_TYPE_INITIALIZER {
     uint16_t WaitObjectPointerOffset;
 }OBJECT_TYPE_INITIALIZER, * POBJECT_TYPE_INITIALIZER;
 
+// @reference https://github.com/hfiref0x/Misc/blob/master/source/DSEPatch/DSEPatch/ntdll/ntos.h#L4136
 typedef struct _OB_CALLBACK_CONTEXT_BLOCK {
     LIST_ENTRY CallbackListEntry;
     OB_OPERATION Operations;
@@ -67,6 +68,7 @@ typedef struct _OB_CALLBACK_CONTEXT_BLOCK {
     EX_RUNDOWN_REF RundownReference;
 } OB_CALLBACK_CONTEXT_BLOCK, *POB_CALLBACK_CONTEXT_BLOCK;
 
+// @reference https://www.vergiliusproject.com/kernels/x64/windows-10/21h2/_OBJECT_TYPE
 typedef struct _OBJECT_TYPE {
     struct _LIST_ENTRY TypeList;
     struct _UNICODE_STRING Name;
@@ -91,7 +93,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
     NTSTATUS returnStatus = STATUS_ABANDONED;
     SIZE_T totalCallbacks = 0;
     SIZE_T maxCallbacks = 10;
-    AUX_MODULE_EXTENDED_INFO* moduleList = NULL;
+    AUX_MODULE_EXTENDED_INFO* kernelModuleList = NULL;
     PVOID* callbackAddresses = NULL;
 
     // allocate the heap object to hold the hold 10 entries with tag blCh (blisterCache)
@@ -99,6 +101,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
 
     if (callbackAddresses == NULL) {
         ERROR("Failed to allocate heap memory for cache of callback addresses\n");
+        goto MemoryCleanup;
     }
 
     // find the callback table for different kinds of callbacks
@@ -135,6 +138,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
                 // check if the array was allocated properly
                 if (newCallbackAddresses == NULL) {
                     ERROR("Failed to expand cache for callback addresses\n");
+                    goto MemoryCleanup;
                 }
 
                 // if everything worked we can copy the old array into the new
@@ -156,4 +160,92 @@ VOID ReportCallbacks(IN PVOID StartContext) {
         ExReleasePushLockExclusive(&psProcess->TypeLock);
         KeLeaveCriticalRegion();
     }
+
+    // now that we have an array of callback addresses
+    // we can enumerate them to find the driver that owns every single one
+
+    // since we don't really know the size our buffer needs to be
+    // we can use the AuxKlibQueryModuleInformation with a
+    // buffer size of 0 and a NUL QueryInfo array
+    // "If this [QueryInfo] pointer is NULL, AuxKlibQueryModuleInformation writes the required buffer size to the location that BufferSize points to."
+    // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/aux_klib/nf-aux_klib-auxklibquerymoduleinformation
+    ULONG bufferSizeToAllocate = 0;
+    returnStatus = AuxKlibInitialize();
+
+    if (!NT_SUCCESS(returnStatus)) {
+        ERROR("Failed to initialize AuxKlib\n");
+        goto MemoryCleanup;
+    }
+
+    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(PAUX_MODULE_EXTENDED_INFO), NULL);
+
+    // if the buffer size is still 0 it means that the AuxKlibQueryModuleInformation
+    // function couldn't manage to calculate the required buffer size
+    // for the kernel modules to enumerate
+    if (!NT_SUCCESS(returnStatus) || bufferSizeToAllocate == 0) {
+        ERROR("Failed to calculate the buffer size to allocate for the kernel modules\n");
+        goto MemoryCleanup;
+    }
+
+    // if we successfully derived the buffer size to allocate
+    // allocate it with a tag of 'blMb' (blisterModulebuffer)
+    ULONG totalKernelModules = bufferSizeToAllocate / sizeof(AUX_MODULE_EXTENDED_INFO);
+    kernelModuleList = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSizeToAllocate, 'blMb');
+
+    if (kernelModuleList == NULL) {
+        ERROR("Failed to allocate buffer for list of kernel modules\n");
+        goto MemoryCleanup;
+    }
+    
+    // at this point we can query the system information
+    // for each module and add it to the list
+    // this time the AuxKlibQueryModuleInformation will function properly
+    // since we supply a buffer size != 0 and a QueryInfo pointer != NULL
+    RtlZeroMemory(kernelModuleList, bufferSizeToAllocate);
+    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(PAUX_MODULE_EXTENDED_INFO), kernelModuleList);
+
+    if (!NT_SUCCESS(returnStatus)) {
+        ERROR("Failed to enumerate kernel modules\n");
+        goto MemoryCleanup;
+    }
+
+    // iterate over the list of callback addresses
+    // and find their owning modules from the list of kernel modules
+    for (SIZE_T o = 0; o < totalCallbacks; o++) {
+        BOOLEAN matched = FALSE;
+        PVOID callbackAddress = callbackAddresses[o];
+
+        // iterate over the module list
+        for (ULONG t = 0; t < totalKernelModules; t++) {
+            // here we get the current kernel module in the list
+            // get the base address and size from the object
+            // and check if the address of the callback we're looking for
+            // is between the base address and baseAddress + sizeofModule
+            AUX_MODULE_EXTENDED_INFO* currentModule = &kernelModuleList[t];
+            PVOID currentKernelModuleBase = currentModule->BasicInfo.ImageBase;
+            ULONG currentKernelModuleSize = currentModule->ImageSize;
+
+            if (callbackAddress >= currentKernelModuleBase && callbackAddress < (PVOID)((ULONG_PTR)currentKernelModuleBase + currentKernelModuleSize)) {
+                matched = TRUE;
+                SUCCESS("The callback address %p is owned by %s", callbackAddress, currentModule->FullPathName);
+                break;
+            }
+        }
+
+        if (!matched) {
+            WARN("Callback address %p has no owner kernel module (???)\n", callbackAddress);
+            goto MemoryCleanup;
+        }
+    }
+
+MemoryCleanup:
+    if (callbackAddresses != NULL) {
+        ExFreePoolWithTag(callbackAddresses, 'blCh');
+    }
+
+    if (kernelModuleList != NULL) {
+        ExFreePoolWithTag(callbackAddresses, 'blMb');
+    }
+
+    return;
 }
