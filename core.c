@@ -331,7 +331,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // so we return before cleanup since no memory was allocated
     // and we haven't acquired any locks
     if (CreateInfo == NULL) {
-        // todo: create function to handle process exit
+        PcreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
         return;
     }
 
