@@ -10,7 +10,7 @@ There are known techniques used to detect and remove rootkits, including PPL-bas
 - [The Evolution of Protected Processes Part 2: Exploit/Jailbreak Mitigations, Unkillable Processes and Protected Services](https://www.crowdstrike.com/blog/evolution-protected-processes-part-2-exploitjailbreak-mitigations-unkillable-processes-and/)
 - [More about rootkits](https://github.com/rmusser01/Infosec_Reference/blob/master/Draft/Rootkits.md#windows)
 
-*Blister* allows to configure a list of entries for all the processes you would like to be protecter by the driver.
+*Blister* allows to configure a list of entries for all the processes you would like to be protected by the driver.
 
 ---
 
