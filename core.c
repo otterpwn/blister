@@ -121,7 +121,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
 
         // parse the callback list and get the current / first element
         PLIST_ENTRY callbackList = &psProcess->CallbackList;
-        PLIST_ENTRY currentCallbackListEntry = &callbackList->Flink;
+        PLIST_ENTRY currentCallbackListEntry = callbackList->Flink;
 
         // iterate over the list
         while (currentCallbackListEntry != callbackList) {
@@ -272,7 +272,7 @@ OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, I
 
     // if the target process is trying to open a handle
     // to itself we can skip the rest of the implementation
-    if (openedProcess == PsGetCurrentProcess || targetPID == sourcePID) {
+    if (openedProcess == PsGetCurrentProcess() || targetPID == sourcePID) {
         // skip to the end of the function
         goto Cleanup;
     }
@@ -421,7 +421,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
         imageName.MaximumLength = CreateInfo->ImageFileName->MaximumLength;
 
         for (int o = imageName.Length / sizeof(WCHAR); o > 0; o--) {
-            if (imageName.Buffer[o] == L"\\" || imageName.Buffer[o] == L"/") {
+            if (imageName.Buffer[o] == L'\\' || imageName.Buffer[o] == L'/') {
                 imageName.Buffer = &imageName.Buffer[o + 1];
                 imageName.Length = (USHORT)(imageName.Length - (o + 1) * sizeof(WCHAR));
                 imageName.MaximumLength = (USHORT)(imageName.MaximumLength - (o + 1) * sizeof(WCHAR));
