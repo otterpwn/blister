@@ -36,41 +36,41 @@ typedef struct _OpenProcessCallback {
     POB_PRE_OPERATION_CALLBACK OpenProcessNotifyPtr;
     PVOID RegistrationHandle;
     BOOLEAN IsRegistered;
-} OpenProcessCallback, *POpenProcessCallback;
+} OpenProcessCallback, * POpenProcessCallback;
 
 typedef struct _CallbackState {
     ImageLoadCallback ImageLoadNotify;
     ProcessLoadCallback ProcessNotify;
     OpenProcessCallback OpenProcessNotify;
-} CallbackState, *PCallbackState;
+} CallbackState, * PCallbackState;
 
 typedef struct _ProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
-    LIST_ENTRY CurrentEntry;
-} ProtectedProcessEntry, *PProtectedProcessEntry;
+    LIST_ENTRY CurEntry;
+} ProtectedProcessEntry, * PProtectedProcessEntry;
 
 typedef struct _ActiveProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
-    LIST_ENTRY CurrentEntry;
-} ActiveProtectedProcessEntry, *PActiveProtectedProcessEntry;
+    LIST_ENTRY CurEntry;
+} ActiveProtectedProcessEntry, * PActiveProtectedProcessEntry;
 
 typedef struct _BlisterState {
-    // guarded mutex to "lock" the structure down to avoid
-    // having threads and functions concurrently accessing the structure's attributes
-    KGUARDED_MUTEX InUse;
     // an array of 10 handles, this is used to get the PID and then HANDLE
     // to the process / processes that need to be set as PPL
     // this variable is a "cache" because it contains the first 10 entries of
     // the ActiveSelfProtectedProcesses list to avoid having to
-    // enumerate the linked list everytime,
+    // enumerate the linked list everytime
     HANDLE CacheSelfProtectedPIDs[10];
+    // guarded mutex to "lock" the structure down to avoid
+    // having threads and functions concurrently accessing the structure's attributes
+    KGUARDED_MUTEX Lock;
+    // list of callbacks
+    CallbackState Callbacks;
     // list of all the processes we need to set as protected
-    // this can either contain the PID of the process or the process name
+    // this can either contain the PID of the process or the process namey
     LIST_ENTRY SelfProtectedProcesses;
     // list of active PPLs
     LIST_ENTRY ActiveSelfProtectedProcesses;
-    // list of callbacks
-    CallbackState Callbacks;
 } BlisterState, * PBlisterState;
