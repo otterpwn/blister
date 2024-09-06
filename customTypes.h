@@ -36,25 +36,25 @@ typedef struct _OpenProcessCallback {
     POB_PRE_OPERATION_CALLBACK OpenProcessNotifyPtr;
     PVOID RegistrationHandle;
     BOOLEAN IsRegistered;
-} OpenProcessCallback, * POpenProcessCallback;
+} OpenProcessCallback, *POpenProcessCallback;
 
 typedef struct _CallbackState {
     ImageLoadCallback ImageLoadNotify;
     ProcessLoadCallback ProcessNotify;
     OpenProcessCallback OpenProcessNotify;
-} CallbackState, * PCallbackState;
+} CallbackState, *PCallbackState;
 
 typedef struct _ProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
     LIST_ENTRY CurrentEntry;
-} ProtectedProcessEntry, * PProtectedProcessEntry;
+} ProtectedProcessEntry, *PProtectedProcessEntry;
 
 typedef struct _ActiveProtectedProcessEntry {
     PUNICODE_STRING Name;
     HANDLE ProcessId;
     LIST_ENTRY CurrentEntry;
-} ActiveProtectedProcessEntry, * PActiveProtectedProcessEntry;
+} ActiveProtectedProcessEntry, *PActiveProtectedProcessEntry;
 
 typedef struct _BlisterState {
     // guarded mutex to "lock" the structure down to avoid
