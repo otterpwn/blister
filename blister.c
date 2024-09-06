@@ -18,7 +18,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     UNICODE_STRING altitudeString;
     OB_CALLBACK_REGISTRATION obOpenProcPre = { 0 };
 
-    //DriverObject->DriverUnload = UnloadDriver;
+    DriverObject->DriverUnload = UnloadDriver;
 
     INFO("blister has started\n");
 
@@ -47,6 +47,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.ImageLoadNotify.IsRegistered = TRUE;
+    SUCCESS("PsSetLoadImageNotifyRoutine successfully set ImageLoadNotifyCallback callback\n");
 
     // set the CreateProcessNotify pointer in the driver callbacks to the
     // pointer of the PCreateProcessNotifyRoutineEx function and set it with
@@ -62,6 +63,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.ProcessNotify.IsRegistered = TRUE;
+    ERROR("PsSetCreateProcessNotifyRoutineEx successfully set PCreateProcessNotifyRoutineEx callback\n");
 
     // set the OpenProcessNotify callback
     // using the ObRegisterCallbacks function
@@ -70,7 +72,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     obOpenProcPre.OperationRegistrationCount = 1;           // only one entry
 
     // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/load-order-groups-and-altitudes-for-minifilter-drivers#types-of-load-order-groups-and-their-altitude-ranges
-    RtlInitUnicodeString(&altitudeString, L"423851");       // initialize the altitude string to the FIlter Load order group
+    RtlInitUnicodeString(&altitudeString, L"423851");       // initialize the altitude string to the Filter Load order group
     obOpenProcPre.Altitude = altitudeString;
     obOpenProcPre.RegistrationContext = NULL;
 
