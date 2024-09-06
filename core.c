@@ -337,6 +337,8 @@ VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
     // acquire the lock on the list and start
     // looping through the list
     KeAcquireGuardedMutex(&driverState.InUse);
+    INFO("PCreateProcessNotifyExitingHandler successfully acquired a lock");
+
     PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
     PLIST_ENTRY nextEntry = startEntry->Flink;
 
@@ -395,6 +397,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
         PCreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
         return;
     }
+    INFO("CreateInfo is not NULL, process is not exiting\n");
 
     // if we get to this point it means that the process
     // callback is starting and we need to figure out
@@ -404,6 +407,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // so we have to get a lock on it
     // and only then we can iterate over the list
     KeAcquireGuardedMutex(&driverState.InUse);
+    INFO("PCreateProcessNotifyRoutineEx successfully acquired a lock");
     
     PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
     PLIST_ENTRY nextEntry = startEntry->Flink;
