@@ -100,8 +100,8 @@ VOID ReportCallbacks(IN PVOID StartContext) {
     SIZE_T totalCallbacks = 0;
     SIZE_T maxCallbacks = 10;
 
-    // allocate the heap object to hold the hold 10 entries with tag blCh (blisterCache)
-    callbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'kabC');
+    // allocate the heap object to hold the hold 10 entries
+    callbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'blCr');
 
     if (callbackAddresses == NULL) {
         ERROR("Failed to allocate heap memory for cache of callback addresses\n");
@@ -137,7 +137,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
             if (totalCallbacks == maxCallbacks) {
                 maxCallbacks *= 2;
 
-                PVOID* newCallbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'kabC');
+                PVOID* newCallbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'blCr');
 
                 // check if the array was allocated properly
                 if (newCallbackAddresses == NULL) {
@@ -149,7 +149,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
                 // one, free the heap pool allocated for the old array and update the pointer
                 // to the first element
                 RtlCopyMemory(newCallbackAddresses, callbackAddresses, sizeof(PVOID) * totalCallbacks);
-                ExFreePoolWithTag(callbackAddresses, 'kabC');
+                ExFreePoolWithTag(callbackAddresses, 'blCr');
                 callbackAddresses = newCallbackAddresses;
             }
 
@@ -192,9 +192,8 @@ VOID ReportCallbacks(IN PVOID StartContext) {
     }
 
     // if we successfully derived the buffer size to allocate
-    // allocate it with a tag of 'blMb' (blisterModulebuffer)
     ULONG totalKernelModules = bufferSizeToAllocate / sizeof(AUX_MODULE_EXTENDED_INFO);
-    kernelModuleList = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSizeToAllocate, 'kabC');
+    kernelModuleList = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSizeToAllocate, 'blCr');
 
     if (kernelModuleList == NULL) {
         ERROR("Failed to allocate buffer for list of kernel modules\n");
@@ -243,73 +242,15 @@ VOID ReportCallbacks(IN PVOID StartContext) {
 
 MemoryCleanup:
     if (callbackAddresses != NULL) {
-        ExFreePoolWithTag(callbackAddresses, 'kabC');
+        ExFreePoolWithTag(callbackAddresses, 'blCr');
     }
     if (kernelModuleList != NULL) {
-        ExFreePoolWithTag(kernelModuleList, 'kabC');
+        ExFreePoolWithTag(kernelModuleList, 'blCr');
     }
 
     return;
 }
-/*
-OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, IN POB_PRE_OPERATION_INFORMATION OperationInformation) {
-    UNREFERENCED_PARAMETER(RegistrationContext);
 
-    HANDLE targetPID = NULL, sourcePID = NULL;
-    BOOLEAN isPP = FALSE;
-
-    // get a handle to the first PID
-    if (OperationInformation->ObjectType != *PsProcessType) {
-        // handle a different callee object
-        goto Cleanup;
-    }
-
-    PEPROCESS openedProcess = (PEPROCESS)OperationInformation->Object;
-    targetPID = PsGetProcessId(openedProcess);
-    sourcePID = PsGetCurrentProcessId();
-
-    // if the target process is trying to open a handle
-    // to itself we can skip the rest of the implementation
-    if (openedProcess == PsGetCurrentProcess() || targetPID == sourcePID) {
-        // skip to the end of the function
-        goto Cleanup;
-    }
-
-    // search for the PID in the cached PIDs from the driverState object (BlisterState->CacheSelfProtectedPIDs)
-    // if we find a match, we can break the loop
-    // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exinterlockedcompareexchange64
-    int totalCacheElements = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
-    for (int o = 0; o < totalCacheElements; o++) {
-        HANDLE interlockedCompareResult = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, 0);
-
-        if (interlockedCompareResult == targetPID && OperationInformation->KernelHandle != TRUE) {
-            isPP = TRUE;
-            break;
-        }
-    }
-
-    if (isPP) {
-        INFO("A process is trying to get a handle to the PP %d from a PID of ^%d, blocking the operation\n");
-
-        // if the protected process is getting accessed by another process
-        // (create handle or duplicate handle) strip the handle
-        // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_ob_pre_create_handle_information
-        ACCESS_MASK denyAccessToHandle = PROCESS_TERMINATE;
-
-        switch (OperationInformation->Operation) {
-        case OB_OPERATION_HANDLE_CREATE:
-            OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
-            break;
-        case OB_OPERATION_HANDLE_DUPLICATE:
-            OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
-            break;
-        }
-    }
-
-Cleanup:
-    return OB_PREOP_SUCCESS;
-}
-*/
 OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, IN POB_PRE_OPERATION_INFORMATION OperationInformation) {
     UNREFERENCED_PARAMETER(RegistrationContext);
 
@@ -378,70 +319,7 @@ VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDL
 
     return;
 }
-/*
-VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
-    UNREFERENCED_PARAMETER(Process);
-    UNREFERENCED_PARAMETER(CreateInfo);
 
-    // since this function handles the callbacks from
-    // PsSetCreateProcessNotifyRoutineEx when a process is exiting
-    // we'll iterate over the list of active PPs and remove
-    // the entry for the exiting process
-    // the functionality will be really similar to the MemoryCleanup label 
-    // and main while loop for the PCreateProcessNotifyRoutineEx
-    // function but instead of copying the unicode string into new buffers
-    // we'll be freeing the buffers instead
-
-    // acquire the lock on the list and start
-    // looping through the list
-    KeAcquireGuardedMutex(&driverState.Lock);
-    INFO("PCreateProcessNotifyExitingHandler successfully acquired a lock");
-
-    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
-    PLIST_ENTRY nextEntry = startEntry->Flink;
-
-    while (nextEntry != startEntry) {
-        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurEntry);
-
-        // if the PID match remove everything related to the entry
-        if (ppEntry->ProcessId == ProcessId) {
-            if (ppEntry != NULL) {
-                if (ppEntry->Name != NULL) {
-                    if (ppEntry->Name->Buffer != NULL) {
-                        ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPb');
-                    }
-                    ExFreePoolWithTag(ppEntry->Name, 'blPn');
-                }
-                ExFreePoolWithTag(ppEntry, 'blPp');
-            }
-
-            // remove the entry from the list
-            RemoveEntryList(&ppEntry->CurEntry);
-
-            // find the entry in the cached PIDs handles and set it to 0
-            // and clean up the un-used entry as well
-            int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
-            for (int o = 0; o < sizeOfCache; o++) {
-                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, (LONG64)ProcessId);
-
-                if (hProcess == ProcessId) {
-                    break;
-                }
-            }
-            ExFreePoolWithTag(ppEntry, 'blPp');
-            goto Cleanup;
-        }
-
-        // go forward in the list
-        nextEntry = nextEntry->Flink;
-    }
-
-Cleanup:
-    // release the lock
-    KeReleaseGuardedMutex(&driverState.Lock);
-    return;
-}
-*/
 VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
     UNREFERENCED_PARAMETER(CreateInfo);
@@ -471,9 +349,9 @@ VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
         if (ppEntry->ProcessId == ProcessId) {
             if (ppEntry->Name != NULL) {
                 if (ppEntry->Name->Buffer != NULL) {
-                    ExFreePoolWithTag(ppEntry->Name->Buffer, 'ekrC');
+                    ExFreePoolWithTag(ppEntry->Name->Buffer, 'blCr');
                 }
-                ExFreePoolWithTag(ppEntry->Name, 'ekrC');
+                ExFreePoolWithTag(ppEntry->Name, 'blCr');
             }
 
             // remove the entry from the list
@@ -489,7 +367,7 @@ VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
                 }
             }
 
-            ExFreePoolWithTag(ppEntry, 'ekrC');
+            ExFreePoolWithTag(ppEntry, 'blCr');
             goto Cleanup;
         }
 
@@ -503,133 +381,6 @@ Cleanup:
     return;
 }
 
-/*
-VOID PcreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
-    UNREFERENCED_PARAMETER(Process);
-
-    PActiveProtectedProcessEntry ppEntry = NULL;
-    NTSTATUS returnStatus = STATUS_ABANDONED;
-
-    // if CreateInfo is NULL it means the process is exiting
-    // so we return before cleanup since no memory was allocated
-    // and we haven't acquired any locks
-    if (CreateInfo == NULL) {
-        PcreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
-        return;
-    }
-    INFO("CreateInfo is not NULL, process is not exiting\n");
-
-    // if we get to this point it means that the process
-    // callback is starting and we need to figure out
-    // whether we need to protect the process or not
-
-    // enumerate the SelfProtecterProcesses list
-    // so we have to get a lock on it
-    // and only then we can iterate over the list
-    KeAcquireGuardedMutex(&driverState.Lock);
-    INFO("PCreateProcessNotifyRoutineEx successfully acquired a lock");
-    
-    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
-    PLIST_ENTRY nextEntry = startEntry->Flink;
-
-    // this is from GPT, apparently we need to skip the first entry
-    // because it's not actually part of the entries
-    while (nextEntry != startEntry) {
-        PProtectedProcessEntry listEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurEntry);
-        
-        // this horrible piece of code is to split CreateInfo->ImageFileName at the last slash
-        // by iterating over the string backwards until we find a '/' or a '\'
-        UNICODE_STRING imageName;
-        imageName.Buffer = CreateInfo->ImageFileName->Buffer;
-        imageName.Length = CreateInfo->ImageFileName->Length;
-        imageName.MaximumLength = CreateInfo->ImageFileName->MaximumLength;
-
-        for (int o = imageName.Length / sizeof(WCHAR); o > 0; o--) {
-            if (imageName.Buffer[o] == L'\\' || imageName.Buffer[o] == L'/') {
-                imageName.Buffer = &imageName.Buffer[o + 1];
-                imageName.Length = (USHORT)(imageName.Length - (o + 1) * sizeof(WCHAR));
-                imageName.MaximumLength = (USHORT)(imageName.MaximumLength - (o + 1) * sizeof(WCHAR));
-                break;
-            }
-        }
-
-        // now compare the isolated image names
-        INFO("Comparing imageName entry %wZ to protected imageName entry %wZ\n", imageName, listEntry->Name);
-
-        // if we find a match
-        if (RtlCompareUnicodeString(&imageName, listEntry->Name, TRUE) == 0) {
-            // now we allocate all the buffers for the PP entry and all its fields
-            // allocate a buffer for the PP entry with the tag blPp (blisterProtectedprocess)
-            // allocate space for the name of the PP entry with the tag blPn (blisterProtectedname)
-            // allocate space for the name buffer with the name length with a tag of blPb (blisterProtectedbuffer)
-            ppEntry = (PActiveProtectedProcessEntry)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ActiveProtectedProcessEntry), 'blPp');
-            if (ppEntry == NULL) {
-                // exit if we can't allocate the space for the PP entry
-                goto MemoryCleanup;
-            }
-            
-            ppEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
-            if (ppEntry->Name == NULL) {
-                // exit if we can't allocate the space for the name of the entry
-                goto MemoryCleanup;
-            }
-
-            ppEntry->Name->Buffer = ExAllocatePool2(POOL_FLAG_PAGED, CreateInfo->ImageFileName->Length, 'blPb');
-            ppEntry->Name->MaximumLength = CreateInfo->ImageFileName->Length;
-            if (ppEntry->Name->Buffer == NULL) {
-                // exit if we can't allocate space for the name buffer
-                goto MemoryCleanup;
-            }
-
-            // now that we allocated all the buffers we can
-            // copy the image name string into the ppEntry object
-            returnStatus = RtlUnicodeStringCopy(ppEntry->Name, CreateInfo->ImageFileName);
-            ppEntry->ProcessId = ProcessId;
-
-            if (ppEntry->Name == CreateInfo->ImageFileName) {
-                // exit if the copy didn't work
-                goto MemoryCleanup;
-            }
-
-            // insert the protected process entry
-            // into our list of active protected processes
-            // and its PID in the cache of handles (if there is any space left)
-            InsertTailList(&driverState.ActiveSelfProtectedProcesses, &ppEntry->CurEntry);
-
-            int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
-            for (int o = 0; o < sizeOfCache; o++) {
-                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], (LONG64)ProcessId, 0);
-
-                if (hProcess == 0) {
-                    break;
-                }
-            }
-            goto EndOfFunction;
-        }
-
-        // advance to the next entry in the list
-        nextEntry = nextEntry->Flink;
-    }
-
-MemoryCleanup:
-    // free all the buffers we allocated for the PP entry,
-    // its name and the buffer for the name
-    if (ppEntry != NULL) {
-        if (ppEntry->Name != NULL) {
-            if (ppEntry->Name->Buffer != NULL) {
-                ExFreePoolWithTag(ppEntry->Name->Buffer, 'blPb');
-            }
-            ExFreePoolWithTag(ppEntry->Name, 'blPn');
-        }
-        ExFreePoolWithTag(ppEntry, 'blPp');
-    }
-
-EndOfFunction:
-    // release the lock
-    KeReleaseGuardedMutex(&driverState.Lock);
-    return;
-}
-*/
 VOID PcreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
 
@@ -685,23 +436,23 @@ VOID PcreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
         // if we find a match
         if (RtlCompareUnicodeString(&imageName, listEntry->Name, TRUE) == 0) {
             // now we allocate all the buffers for the PP entry and all its fields
-            // allocate a buffer for the PP entry with the tag blPp (blisterProtectedprocess)
-            // allocate space for the name of the PP entry with the tag blPn (blisterProtectedname)
-            // allocate space for the name buffer with the name length with a tag of blPb (blisterProtectedbuffer)
-            ppEntry = (PActiveProtectedProcessEntry)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ActiveProtectedProcessEntry), 'ekrC');
+            // allocate a buffer for the PP entry
+            // allocate space for the name of the PP entry
+            // allocate space for the name buffer with the name length
+            ppEntry = (PActiveProtectedProcessEntry)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ActiveProtectedProcessEntry), 'blCr');
 
             if (ppEntry == NULL) {
                 // exit if we can't allocate the space for the PP entry
                 goto MemoryCleanup;
             }
 
-            ppEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'ekrC');
+            ppEntry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blCr');
             if (ppEntry->Name == NULL) {
                 // exit if we can't allocate the space for the name of the entry
                 goto MemoryCleanup;
             }
 
-            ppEntry->Name->Buffer = ExAllocatePool2(POOL_FLAG_PAGED, CreateInfo->ImageFileName->Length, 'ekrC');
+            ppEntry->Name->Buffer = ExAllocatePool2(POOL_FLAG_PAGED, CreateInfo->ImageFileName->Length, 'blCr');
             if (ppEntry->Name->Buffer == NULL) {
                 // exit if we can't allocate space for the name buffer
                 goto MemoryCleanup;
@@ -744,11 +495,11 @@ MemoryCleanup:
     if (ppEntry != NULL) {
         if (ppEntry->Name != NULL) {
             if (ppEntry->Name->Buffer != NULL) {
-                ExFreePoolWithTag(ppEntry->Name->Buffer, 'ekrC');
+                ExFreePoolWithTag(ppEntry->Name->Buffer, 'blCr');
             }
-            ExFreePoolWithTag(ppEntry->Name, 'ekrC');
+            ExFreePoolWithTag(ppEntry->Name, 'blCr');
         }
-        ExFreePoolWithTag(ppEntry, 'ekrC');
+        ExFreePoolWithTag(ppEntry, 'blCr');
     }
 
 

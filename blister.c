@@ -76,7 +76,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
    
     // allocate the OperationRegistration field with the blCb (blisterCallback) tag
     // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exallocatepool2
-    obOpenProcPre.OperationRegistration = (POB_OPERATION_REGISTRATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(OB_OPERATION_REGISTRATION), 'ekrC');
+    obOpenProcPre.OperationRegistration = (POB_OPERATION_REGISTRATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(OB_OPERATION_REGISTRATION), 'blCb');
 
     if (obOpenProcPre.OperationRegistration == NULL) {
         returnValue = STATUS_UNSUCCESSFUL;
@@ -117,13 +117,13 @@ PostInitialization:
             // allocate the entry with a tag of blEn (blisterEntry)
             // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exallocatepool2
             UNICODE_STRING entryName = RTL_CONSTANT_STRING(L"mimikatz.exe");
-            ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ProtectedProcessEntry), 'ekrC');
+            ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ProtectedProcessEntry), 'blEn');
 
             if (entry != NULL) {
                 // allocate a buffer for the process name with a tag of blPn (blisterProcessName)
-                entry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'ekrC');
+                entry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
                 // allocate a buffer for the string buffer with a tag of blBf (blisterBuffer)
-                entry->Name->Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, entryName.Length, 'ekrC');
+                entry->Name->Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, entryName.Length, 'blBf');
                 entry->Name->MaximumLength = entryName.Length;
 
                 // copy the name into the Name attribute of the entry
@@ -166,7 +166,7 @@ PostInitialization:
         // free the buffer with tag blCb (blisterCallback) allocated
         // to register the OpenProcess callback
         if (obOpenProcPre.OperationRegistration != NULL) {
-            ExFreePoolWithTag(obOpenProcPre.OperationRegistration, 'ekrC');
+            ExFreePoolWithTag(obOpenProcPre.OperationRegistration, 'blCb');
         }
     }
 
