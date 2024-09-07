@@ -378,7 +378,7 @@ VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDL
 
     return;
 }
-
+/*
 VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
     UNREFERENCED_PARAMETER(CreateInfo);
@@ -429,6 +429,67 @@ VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
                 }
             }
             ExFreePoolWithTag(ppEntry, 'blPp');
+            goto Cleanup;
+        }
+
+        // go forward in the list
+        nextEntry = nextEntry->Flink;
+    }
+
+Cleanup:
+    // release the lock
+    KeReleaseGuardedMutex(&driverState.Lock);
+    return;
+}
+*/
+VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
+    UNREFERENCED_PARAMETER(Process);
+    UNREFERENCED_PARAMETER(CreateInfo);
+
+    // since this function handles the callbacks from
+    // PsSetCreateProcessNotifyRoutineEx when a process is exiting
+    // we'll iterate over the list of active PPs and remove
+    // the entry for the exiting process
+    // the functionality will be really similar to the MemoryCleanup label 
+    // and main while loop for the PCreateProcessNotifyRoutineEx
+    // function but instead of copying the unicode string into new buffers
+    // we'll be freeing the buffers instead
+
+
+    // acquire the lock on the list and start
+    // looping through the list
+    KeAcquireGuardedMutex(&driverState.Lock);
+    INFO("PCreateProcessNotifyExitingHandler successfully acquired a lock");
+
+    PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
+    PLIST_ENTRY nextEntry = startEntry->Flink;
+
+    while (nextEntry != startEntry) {
+        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurEntry);
+
+        // if the PID match remove everything related to the entry
+        if (ppEntry->ProcessId == ProcessId) {
+            if (ppEntry->Name != NULL) {
+                if (ppEntry->Name->Buffer != NULL) {
+                    ExFreePoolWithTag(ppEntry->Name->Buffer, 'ekrC');
+                }
+                ExFreePoolWithTag(ppEntry->Name, 'ekrC');
+            }
+
+            // remove the entry from the list
+            RemoveEntryList(&ppEntry->CurEntry);
+
+            // find the entry in the cached PIDs handles and set it to 0
+            // and clean up the un-used entry as well
+            for (int o = 0; o < ELEMCOUNT(driverState.CacheSelfProtectedPIDs); o++) {
+                HANDLE hProcess = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, (LONG64)ProcessId);
+
+                if (hProcess == ProcessId) {
+                    break;
+                }
+            }
+
+            ExFreePoolWithTag(ppEntry, 'ekrC');
             goto Cleanup;
         }
 
