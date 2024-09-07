@@ -35,6 +35,8 @@ sc create blister binPath= C:\path\to\the\driver\blister.sys type= kernel
 sc start blister
 ```
 
+An alternative would be to use a GUI-based program like [OSR Loader](https://www.osronline.com/article.cfm%5Earticle=157.htm) to create and start the service.
+
 If you open `dbgview` or any other utils that can catch kernel debugging messages, starting the `blister` service should print messages like these
 ```
 [INFO] blister: blister has started
