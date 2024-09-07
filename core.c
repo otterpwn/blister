@@ -94,14 +94,14 @@ typedef struct _OBJECT_TYPE {
 VOID ReportCallbacks(IN PVOID StartContext) {
     UNREFERENCED_PARAMETER(StartContext);
 
-    NTSTATUS returnStatus = STATUS_ABANDONED;
-    SIZE_T totalCallbacks = 0;
-    SIZE_T maxCallbacks = 10;
+    NTSTATUS returnStatus;
     AUX_MODULE_EXTENDED_INFO* kernelModuleList = NULL;
     PVOID* callbackAddresses = NULL;
+    SIZE_T totalCallbacks = 0;
+    SIZE_T maxCallbacks = 10;
 
     // allocate the heap object to hold the hold 10 entries with tag blCh (blisterCache)
-    callbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'blCh');
+    callbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'kabC');
 
     if (callbackAddresses == NULL) {
         ERROR("Failed to allocate heap memory for cache of callback addresses\n");
@@ -114,7 +114,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
     {
         // enumerate the PsProcessType callbacks
         POBJECT_TYPE psProcess = *PsProcessType;
-
+        
         // obtain the lock on the callback table
         KeEnterCriticalRegion();                            // disable APCs
         ExAcquirePushLockExclusive(&psProcess->TypeLock);   // acquire the lock
@@ -137,7 +137,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
             if (totalCallbacks == maxCallbacks) {
                 maxCallbacks *= 2;
 
-                PVOID* newCallbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'blCh');
+                PVOID* newCallbackAddresses = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(PVOID) * maxCallbacks, 'kabC');
 
                 // check if the array was allocated properly
                 if (newCallbackAddresses == NULL) {
@@ -148,16 +148,16 @@ VOID ReportCallbacks(IN PVOID StartContext) {
                 // if everything worked we can copy the old array into the new
                 // one, free the heap pool allocated for the old array and update the pointer
                 // to the first element
-                RtlCopyMemory(newCallbackAddresses, callbackAddress, sizeof(PVOID) * totalCallbacks);
-                ExFreePoolWithTag(callbackAddress, 'blCh');
-                callbackAddress = newCallbackAddresses;
+                RtlCopyMemory(newCallbackAddresses, callbackAddresses, sizeof(PVOID) * totalCallbacks);
+                ExFreePoolWithTag(callbackAddresses, 'kabC');
+                callbackAddresses = newCallbackAddresses;
             }
 
             // only after we're sure the array has enough space
             // we can move to the next entry
             currentCallbackListEntry = currentCallbackListEntry->Flink;
         }
-         
+
         // once we're done enumerating the callback list
         // we can revert the changes by releasing the lock
         // and re-enabling APCs
@@ -181,7 +181,7 @@ VOID ReportCallbacks(IN PVOID StartContext) {
         goto MemoryCleanup;
     }
 
-    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(PAUX_MODULE_EXTENDED_INFO), NULL);
+    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(AUX_MODULE_EXTENDED_INFO), NULL);
 
     // if the buffer size is still 0 it means that the AuxKlibQueryModuleInformation
     // function couldn't manage to calculate the required buffer size
@@ -194,19 +194,19 @@ VOID ReportCallbacks(IN PVOID StartContext) {
     // if we successfully derived the buffer size to allocate
     // allocate it with a tag of 'blMb' (blisterModulebuffer)
     ULONG totalKernelModules = bufferSizeToAllocate / sizeof(AUX_MODULE_EXTENDED_INFO);
-    kernelModuleList = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSizeToAllocate, 'blMb');
+    kernelModuleList = ExAllocatePool2(POOL_FLAG_NON_PAGED, bufferSizeToAllocate, 'kabC');
 
     if (kernelModuleList == NULL) {
         ERROR("Failed to allocate buffer for list of kernel modules\n");
         goto MemoryCleanup;
     }
-    
+
     // at this point we can query the system information
     // for each module and add it to the list
     // this time the AuxKlibQueryModuleInformation will function properly
     // since we supply a buffer size != 0 and a QueryInfo pointer != NULL
     RtlZeroMemory(kernelModuleList, bufferSizeToAllocate);
-    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(PAUX_MODULE_EXTENDED_INFO), kernelModuleList);
+    returnStatus = AuxKlibQueryModuleInformation(&bufferSizeToAllocate, sizeof(AUX_MODULE_EXTENDED_INFO), kernelModuleList);
 
     if (!NT_SUCCESS(returnStatus)) {
         ERROR("Failed to enumerate kernel modules\n");
@@ -219,36 +219,34 @@ VOID ReportCallbacks(IN PVOID StartContext) {
         BOOLEAN matched = FALSE;
         PVOID callbackAddress = callbackAddresses[o];
 
-        // iterate over the module list
+        // iterate over the modules list
         for (ULONG t = 0; t < totalKernelModules; t++) {
             // here we get the current kernel module in the list
             // get the base address and size from the object
             // and check if the address of the callback we're looking for
             // is between the base address and baseAddress + sizeofModule
             AUX_MODULE_EXTENDED_INFO* currentModule = &kernelModuleList[t];
-            PVOID currentKernelModuleBase = currentModule->BasicInfo.ImageBase;
-            ULONG currentKernelModuleSize = currentModule->ImageSize;
+            PVOID currentModuleBase = currentModule->BasicInfo.ImageBase;
+            ULONG currentModuleSize = currentModule->ImageSize;
 
-            if (callbackAddress >= currentKernelModuleBase && callbackAddress < (PVOID)((ULONG_PTR)currentKernelModuleBase + currentKernelModuleSize)) {
+            if (callbackAddress >= currentModuleBase && callbackAddress < (PVOID)((ULONG_PTR)currentModuleBase + currentModuleSize)) {
                 matched = TRUE;
                 SUCCESS("The callback address %p is owned by %s", callbackAddress, currentModule->FullPathName);
                 break;
             }
         }
-
         if (!matched) {
             WARN("Callback address %p has no owner kernel module (???)\n", callbackAddress);
-            goto MemoryCleanup;
         }
     }
+    goto MemoryCleanup;
 
 MemoryCleanup:
     if (callbackAddresses != NULL) {
-        ExFreePoolWithTag(callbackAddresses, 'blCh');
+        ExFreePoolWithTag(callbackAddresses, 'kabC');
     }
-
     if (kernelModuleList != NULL) {
-        ExFreePoolWithTag(callbackAddresses, 'blMb');
+        ExFreePoolWithTag(kernelModuleList, 'kabC');
     }
 
     return;
@@ -321,7 +319,7 @@ VOID ImageLoadNotifyCallback(IN OPTIONAL PUNICODE_STRING FullImageName, IN HANDL
     return;
 }
 
-VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
+VOID PcreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
     UNREFERENCED_PARAMETER(CreateInfo);
 
@@ -336,14 +334,14 @@ VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
 
     // acquire the lock on the list and start
     // looping through the list
-    KeAcquireGuardedMutex(&driverState.InUse);
+    KeAcquireGuardedMutex(&driverState.Lock);
     INFO("PCreateProcessNotifyExitingHandler successfully acquired a lock");
 
     PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
     PLIST_ENTRY nextEntry = startEntry->Flink;
 
     while (nextEntry != startEntry) {
-        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurrentEntry);
+        PProtectedProcessEntry ppEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurEntry);
 
         // if the PID match remove everything related to the entry
         if (ppEntry->ProcessId == ProcessId) {
@@ -358,7 +356,7 @@ VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
             }
 
             // remove the entry from the list
-            RemoveEntryList(&ppEntry->CurrentEntry);
+            RemoveEntryList(&ppEntry->CurEntry);
 
             // find the entry in the cached PIDs handles and set it to 0
             // and clean up the un-used entry as well
@@ -380,11 +378,11 @@ VOID PCreateProcessNotifyExitingHandler(IN OUT PEPROCESS Process, IN HANDLE Proc
 
 Cleanup:
     // release the lock
-    KeReleaseGuardedMutex(&driverState.InUse);
+    KeReleaseGuardedMutex(&driverState.Lock);
     return;
 }
 
-VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
+VOID PcreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId, IN OUT OPTIONAL PPS_CREATE_NOTIFY_INFO CreateInfo) {
     UNREFERENCED_PARAMETER(Process);
 
     PActiveProtectedProcessEntry ppEntry = NULL;
@@ -394,7 +392,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // so we return before cleanup since no memory was allocated
     // and we haven't acquired any locks
     if (CreateInfo == NULL) {
-        PCreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
+        PcreateProcessNotifyExitingHandler(Process, ProcessId, CreateInfo);
         return;
     }
     INFO("CreateInfo is not NULL, process is not exiting\n");
@@ -406,7 +404,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // enumerate the SelfProtecterProcesses list
     // so we have to get a lock on it
     // and only then we can iterate over the list
-    KeAcquireGuardedMutex(&driverState.InUse);
+    KeAcquireGuardedMutex(&driverState.Lock);
     INFO("PCreateProcessNotifyRoutineEx successfully acquired a lock");
     
     PLIST_ENTRY startEntry = &driverState.SelfProtectedProcesses;
@@ -415,7 +413,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
     // this is from GPT, apparently we need to skip the first entry
     // because it's not actually part of the entries
     while (nextEntry != startEntry) {
-        PProtectedProcessEntry listEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurrentEntry);
+        PProtectedProcessEntry listEntry = CONTAINING_RECORD(nextEntry, ProtectedProcessEntry, CurEntry);
         
         // this horrible piece of code is to split CreateInfo->ImageFileName at the last slash
         // by iterating over the string backwards until we find a '/' or a '\'
@@ -474,7 +472,7 @@ VOID PCreateProcessNotifyRoutineEx(IN OUT PEPROCESS Process, IN HANDLE ProcessId
             // insert the protected process entry
             // into our list of active protected processes
             // and its PID in the cache of handles (if there is any space left)
-            InsertTailList(&driverState.ActiveSelfProtectedProcesses, &ppEntry->CurrentEntry);
+            InsertTailList(&driverState.ActiveSelfProtectedProcesses, &ppEntry->CurEntry);
 
             int sizeOfCache = sizeof(driverState.CacheSelfProtectedPIDs) / sizeof((driverState.CacheSelfProtectedPIDs)[0]);
             for (int o = 0; o < sizeOfCache; o++) {
@@ -506,6 +504,6 @@ MemoryCleanup:
 
 EndOfFunction:
     // release the lock
-    KeReleaseGuardedMutex(&driverState.InUse);
+    KeReleaseGuardedMutex(&driverState.Lock);
     return;
 }
