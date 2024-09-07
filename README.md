@@ -12,6 +12,66 @@ There are known techniques used to detect and remove rootkits, including PPL-bas
 
 *Blister* allows to configure a list of entries for all the processes you would like to be protected by the driver.
 
+### Setting up the environment
+As the driver is not signed with a valid certifcate, you'll need to enable Test Signing mode on your VM; to do that execute the following commands from an elevated CMD session
+```
+bcdedit /debug on
+bcdedit /set testsigning on
+```
+These changes can be reverted with
+```
+bcdedit /debug off
+bcdedit /set testsigning off
+```
+
+In order to see the debug messages from the driver you will also need to open `regedit`, navigate to `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager` and create a new Key called **Debug Print Filter**.
+Within that, add a new `DWORD` Value and ive it the name `DEFAULT` and a value of `8`.
+
+### Loading the driver
+To load the driver you will need to create a kernel-type process from an elevated CMD session, create a new service with a `binPath` pointing to the `blister.sys` file (built either with Release or Debug builds) and a `type` of `kernel`.
+Once that's set up, you can start the service and the driver will be loaded.
+```
+sc create blister binPath= C:\path\to\the\driver\blister.sys type= kernel
+sc start blister
+```
+
+If you open `dbgview` or any other utils that can catch kernel debugging messages, starting the `blister` service should print messages like these
+```
+[INFO] blister: blister has started
+[INFO] blister: Mutex and list initialized propely
+[~] blister: PsSetLoadImageNotifyRoutine successfully set ImageLoadNotifyCallback callback
+[~] blister: PsSetCreateProcessNotifyRoutineEx successfully set PCreateProcessNotifyRoutineEx callback
+[INFO] blister: Creating a PPL entry for the "mimikatz.exe" process
+[INFO] blister: blister is exiting
+[~] blister: The callback address FFFFF80172D51B90 is owned by \??\C:\Users\otter\Desktop\projects\blister\x64\Debug\blister.sys
+[~] blister: The callback address FFFFF801709B35D0 is owned by \SystemRoot\SysmonDrv.sys
+[INFO] blister: PCreateProcessNotifyExitingHandler successfully acquired a lock
+```
+If you see similar debug prints, it means that everything went well:
+1. The driver loaded successfully through its `DriverEntry` function
+2. It initialized the guarded mutex and the linked lists it needs to enumerate the active protected processes
+3. The `ImageLoadNotifyCallback` and `PCreateProcessNotifyRoutineEx` got registered successfully
+4. The hardcoded entry for the process to protect (`mimikatz.exe`) was successfully added to the list
+5. `blister` is now exiting its `DriverEntry` function
+
+The rest of the messages are from the rootkit enumerating callbacks and figuring out what kernel module / driver owns said callbacks as we can see with Sysmon's `SysmonDrv.sys`.
+
+If we start Mimikatz and a process or driver tries to create / duplicate a handle to it we'll see the following
+```
+[INFO] blister: Comparing imageName entry mimikatz.exe to protected imageName entry mimikatz.exe
+[INFO] blister: A process is trying to get a handle to the PP 7244 from a PID of ^5332, blocking the operation
+[INFO] blister: A process is trying to get a handle to the PP 7244 from a PID of ^532, blocking the operation
+[INFO] blister: A process is trying to get a handle to the PP 7244 from a PID of ^7092, blocking the operation
+[INFO] blister: A process is trying to get a handle to the PP 7244 from a PID of ^696, blocking the operation
+[INFO] blister: A process is trying to get a handle to the PP 7244 from a PID of ^696, blocking the operation
+```
+
+> [!caution]
+> The debug messages will be printed **only** if the driver is compiled in Debug mode as I've used `DbgPrint` to [print the messages](https://github.com/otterpwn/blister/blob/main/macros.h) as I felt it would be useless to print them in Release mode.
+> If you want to change this, edit the `macros.h` file to use `KdPrint` instead of `DbgPrint`.
+
+As of now, the [code](https://github.com/otterpwn/blister/blob/main/blister.c#L87) only blocks handle creation and duplication, but it would also be possible to block processes from closing the program itself.
+
 ---
 
 > I am all, but what am I?
