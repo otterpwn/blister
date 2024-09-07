@@ -60,7 +60,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.ProcessNotify.IsRegistered = TRUE;
-    ERROR("PsSetCreateProcessNotifyRoutineEx successfully set PCreateProcessNotifyRoutineEx callback\n");
+    SUCCESS("PsSetCreateProcessNotifyRoutineEx successfully set PCreateProcessNotifyRoutineEx callback\n");
 
     // set the OpenProcessNotify callback
     // using the ObRegisterCallbacks function
