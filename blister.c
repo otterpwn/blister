@@ -29,8 +29,6 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     INFO("Mutex and list initialized propely\n");
 
-    DriverObject->DriverUnload = UnloadDriver;
-
     // set the callbacks required to turn user-land processes into PPLs
     // set the ImageLoadCallbackPtr pointer in the driver callbacks to the 
     // pointer of the ImageLoadNotifyCallback function and set it with
