@@ -251,7 +251,7 @@ MemoryCleanup:
 
     return;
 }
-
+/*
 OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, IN POB_PRE_OPERATION_INFORMATION OperationInformation) {
     UNREFERENCED_PARAMETER(RegistrationContext);
 
@@ -302,6 +302,66 @@ OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, I
             break;
         case OB_OPERATION_HANDLE_DUPLICATE:
             OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
+            break;
+        }
+    }
+
+Cleanup:
+    return OB_PREOP_SUCCESS;
+}
+*/
+OB_PREOP_CALLBACK_STATUS PobPreOperationCallback(IN PVOID RegistrationContext, IN POB_PRE_OPERATION_INFORMATION OperationInformation) {
+    UNREFERENCED_PARAMETER(RegistrationContext);
+
+    HANDLE targetPid;
+    HANDLE sourcePid;
+    BOOLEAN isPP = FALSE;
+
+    // get a handle to the first PID
+    if (OperationInformation->ObjectType != *PsProcessType) {
+        // handle a different callee object
+        goto Cleanup;
+    }
+
+    PEPROCESS OpenedProcess = (PEPROCESS)OperationInformation->Object;
+    targetPid = PsGetProcessId(OpenedProcess);
+    sourcePid = PsGetCurrentProcessId();
+
+    // if the target process is trying to open a handle
+    // to itself we can skip the rest of the implementation
+    if (targetPid == sourcePid || OpenedProcess == PsGetCurrentProcess()) {
+        // skip to the end of the function
+        goto Cleanup;
+    }
+
+    // search for the PID in the cached PIDs from the driverState object (BlisterState->CacheSelfProtectedPIDs)
+    // if we find a match, we can break the loop
+    // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exinterlockedcompareexchange64
+    for (int o = 0; o < NUMBEROFELEMENTS(driverState.CacheSelfProtectedPIDs); o++) {
+        HANDLE interlockedCompareResult = (HANDLE)InterlockedCompareExchange64(&(LONG64)driverState.CacheSelfProtectedPIDs[o], 0, 0);
+        
+        if (interlockedCompareResult == targetPid && OperationInformation->KernelHandle != TRUE) {
+            isPP = TRUE;
+            break;
+        }
+    }
+
+    if (!isPP) {
+        goto Cleanup;
+    }
+
+    if (isPP) {
+        INFO("A process is trying to get a handle to the PP %d from a PID of ^%d, blocking the operation\n", targetPid, sourcePid);
+        // if the protected process is getting accessed by another process
+        // (create handle or duplicate handle) strip the handle
+        // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_ob_pre_create_handle_information
+        ACCESS_MASK denyAccessToHandle = PROCESS_TERMINATE;
+
+        switch (OperationInformation->Operation) {
+        case OB_OPERATION_HANDLE_CREATE:
+            OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~denyAccessToHandle;
+            break;
+        case OB_OPERATION_HANDLE_DUPLICATE:
             break;
         }
     }
