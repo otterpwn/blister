@@ -86,6 +86,7 @@
     </DriverSign>
     <Link>
       <AdditionalDependencies>AUX_KLIB.LIB;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/integritycheck %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
