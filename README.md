@@ -25,7 +25,7 @@ bcdedit /set testsigning off
 ```
 
 In order to see the debug messages from the driver you will also need to open `regedit`, navigate to `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager` and create a new Key called **Debug Print Filter**.
-Within that, add a new `DWORD` Value and ive it the name `DEFAULT` and a value of `8`.
+Within that, add a new `DWORD` Value and give it the name `DEFAULT` and a value of `8`.
 
 ### Loading the driver
 To load the driver you will need to create a kernel-type process from an elevated CMD session, create a new service with a `binPath` pointing to the `blister.sys` file (built either with Release or Debug builds) and a `type` of `kernel`.
