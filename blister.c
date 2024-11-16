@@ -28,6 +28,9 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath) {
     InitializeListHead(&driverState.SelfProtectedProcesses);
     InitializeListHead(&driverState.ActiveSelfProtectedProcesses);
 
+	// set the driver unload function to UnloadDriver
+	DriverObject->DriverUnload = UnloadDriver;
+
     INFO("Mutex and list initialized properly\n");
 
     // set the callbacks required to turn user-land processes into PPLs
