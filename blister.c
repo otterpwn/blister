@@ -9,10 +9,11 @@ DRIVER_UNLOAD UnloadDriver;
 
 BlisterState driverState = { 0 };
 
-NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath) {
+NTSTATUS
+DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath) {
     UNREFERENCED_PARAMETER(RegistryPath);
     UNREFERENCED_PARAMETER(DriverObject);
-    
+
     NTSTATUS returnValue;
     HANDLE hThread = NULL;
     OB_CALLBACK_REGISTRATION obOpenProcPre = { 0 };
@@ -20,14 +21,14 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     INFO("blister has started\n");
 
     // initialize a mutex and protected process lists
-    // since driverState is a global variable and multiple functions / threads 
-    // can access, read and modify the members of the structure concurrenty
-    // we need to initialize the Lock guarded mutex (KGUARDED_MUTEX)
+    // since driverState is a global variable and multiple functions / threads
+    // can access, read and modify the members of the structure concurrently
+	// we need to initialize the Lock guarded mutex (KGUARDED_MUTEX)
     KeInitializeGuardedMutex(&driverState.Lock);
     InitializeListHead(&driverState.SelfProtectedProcesses);
     InitializeListHead(&driverState.ActiveSelfProtectedProcesses);
 
-    INFO("Mutex and list initialized propely\n");
+    INFO("Mutex and list initialized properly\n");
 
     // set the callbacks required to turn user-land processes into PPLs
     // set the ImageLoadCallbackPtr pointer in the driver callbacks to the 
@@ -37,10 +38,10 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     driverState.Callbacks.ImageLoadNotify.ImageLoadCallbackPtr = ImageLoadNotifyCallback;
     returnValue = PsSetLoadImageNotifyRoutine(driverState.Callbacks.ImageLoadNotify.ImageLoadCallbackPtr);
     if (!NT_SUCCESS(returnValue)) {
-        ERROR("PsSetLoadImageNotifyRoutine failed to set ImageLoadNotifyCallback callback\n");
+        ERROR("PsSetLoadImageNotifyRoutine failed to set ImageLoadNotifyCallback callback\n");        
         goto PostInitialization;
     }
-   
+
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.ImageLoadNotify.IsRegistered = TRUE;
     SUCCESS("PsSetLoadImageNotifyRoutine successfully set ImageLoadNotifyCallback callback\n");
@@ -56,7 +57,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
         goto PostInitialization;
     }
 
-    // mark the callback as registered in the driver status structure
+    // mark the callback as registered in the other driver status structure
     driverState.Callbacks.ProcessNotify.IsRegistered = TRUE;
     SUCCESS("PsSetCreateProcessNotifyRoutineEx successfully set PCreateProcessNotifyRoutineEx callback\n");
 
@@ -71,11 +72,11 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     RtlInitUnicodeString(&altitudeString, L"423851");       // initialize the altitude string to the Filter Load order group
     obOpenProcPre.Altitude = altitudeString;
     obOpenProcPre.RegistrationContext = NULL;
-   
+
     // allocate the OperationRegistration field with the blCb (blisterCallback) tag
     // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exallocatepool2
     obOpenProcPre.OperationRegistration = (POB_OPERATION_REGISTRATION)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(OB_OPERATION_REGISTRATION), 'blCb');
-
+    
     if (obOpenProcPre.OperationRegistration == NULL) {
         returnValue = STATUS_UNSUCCESSFUL;
         goto PostInitialization;
@@ -95,38 +96,38 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
         ERROR("ObRegisterCallbacks failed to set OpenProcessNotify callback\n");
         goto PostInitialization;
     }
-
+    
     // mark the callback as registered in the driver status structure
     driverState.Callbacks.OpenProcessNotify.IsRegistered = TRUE;
 
 PostInitialization:
-    // check if the rest of the DriverEntry function went smoothly
+	// check if the rest of the DriverEntry function was successful
     if (NT_SUCCESS(returnValue)) {
         // create a thread to report the registered callbacks
         OBJECT_ATTRIBUTES objectAttributes;
         InitializeObjectAttributes(&objectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
         returnValue = PsCreateSystemThread(&hThread, SYNCHRONIZE, &objectAttributes, NULL, NULL, ReportCallbacks, NULL);
-
+        
         if NT_SUCCESS(returnValue) {
-            INFO("Creating a PPL entry for the \"mimikatz.exe\" process\n");
-
+            INFO("Creating a PPL entry for the \"notepad.exe\" process\n");
+            
             // set a ProtectedProcessEntry with the process name "mimikatz.exe"
             // we could also use a PID but that is obviously harder to hardcode
             // allocate the entry with a tag of blEn (blisterEntry)
             // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-exallocatepool2
-            UNICODE_STRING entryName = RTL_CONSTANT_STRING(L"mimikatz.exe");
-            ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ProtectedProcessEntry), 'blEn');
-
+            UNICODE_STRING entryName = RTL_CONSTANT_STRING(L"notepad.exe");
+            ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(ProtectedProcessEntry), 'blCb');
+            
             if (entry != NULL) {
                 // allocate a buffer for the process name with a tag of blPn (blisterProcessName)
-                entry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blPn');
+                entry->Name = (PUNICODE_STRING)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(UNICODE_STRING), 'blCb');
                 // allocate a buffer for the string buffer with a tag of blBf (blisterBuffer)
-                entry->Name->Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, entryName.Length, 'blBf');
+                entry->Name->Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_PAGED, entryName.Length, 'blCb');
                 entry->Name->MaximumLength = entryName.Length;
-
+                
                 // copy the name into the Name attribute of the entry
                 RtlCopyUnicodeString(entry->Name, &entryName);
-                // add the entry to the list of processes to protect
+                // add the entry to the list of the processes to protect
                 InsertTailList(&driverState.SelfProtectedProcesses, &entry->CurEntry);
             }
             else {
@@ -146,23 +147,23 @@ PostInitialization:
         // @reference https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-psremoveloadimagenotifyroutine
         PCallbackState callbacks = &driverState.Callbacks;
 
-        // un-register ImageLoadNotify
+		// un-register ImageLoadNotify
         if (callbacks->ImageLoadNotify.IsRegistered && callbacks->ImageLoadNotify.ImageLoadCallbackPtr != NULL) {
             PsRemoveLoadImageNotifyRoutine(callbacks->ImageLoadNotify.ImageLoadCallbackPtr);
         }
 
-        // un-register ProcessNotify
+		// un-register ProcessNotify
         if (callbacks->ProcessNotify.IsRegistered && callbacks->ProcessNotify.CreateProcessNotifyPtr != NULL) {
             PsSetCreateProcessNotifyRoutineEx(callbacks->ProcessNotify.CreateProcessNotifyPtr, TRUE);
         }
 
-        // un-register OpenProcess
+		// un-register OpenProcessNotify
         if (callbacks->OpenProcessNotify.IsRegistered && callbacks->OpenProcessNotify.OpenProcessNotifyPtr != NULL) {
             ObUnRegisterCallbacks(callbacks->OpenProcessNotify.RegistrationHandle);
         }
 
-        // free the buffer with tag blCb (blisterCallback) allocated
-        // to register the OpenProcess callback
+		// free the buffer with the tag blCb (blisterCallback) allocated
+		// to register the OpenProcess callback
         if (obOpenProcPre.OperationRegistration != NULL) {
             ExFreePoolWithTag(obOpenProcPre.OperationRegistration, 'blCb');
         }
@@ -170,9 +171,9 @@ PostInitialization:
 
     // close the thread handle if we have created it
     if (hThread != NULL) {
-		ZwClose(hThread);
+        ZwClose(hThread);
         hThread = NULL;
-	}
+    }
     INFO("blister is exiting\n");
 
     return returnValue;
